@@ -63,6 +63,6 @@ jobs:
         run: |
           git config user.name "RocketPaper Bot"
           git config user.email "bot@noreply.github.com"
-          git add paper_trades.csv paper_checks.csv paper_dashboard.png || true
+          git add paper_trades.csv paper_checks.csv paper_dashboard.png README.md || true
           git diff --cached --quiet || git commit -m "📊 RocketPaper — $(TZ=Asia/Kolkata date '+%d %b %Y %H:%M IST')"
           git push

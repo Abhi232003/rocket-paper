@@ -367,6 +367,70 @@ def log_check(trade_date: str, check_time: str, check_num: int,
 
 
 # ═══════════════════════════════════════════════════════════════════
+#  README — LAST TRADE UPDATE
+# ═══════════════════════════════════════════════════════════════════
+_README = Path(__file__).parent / "README.md"
+_MARKER_START = "<!-- LAST_TRADE_START -->"
+_MARKER_END   = "<!-- LAST_TRADE_END -->"
+
+def update_readme_last_trade(row: dict):
+    """Replace the Last Trade block in README.md with latest trade data."""
+    pl = float(row.get("net_pl_rs", 0))
+    pct = float(row.get("net_pl_pct", 0))
+    pl_icon = "✅" if pl > 0 else "🔴"
+    pl_bold = f"**Rs {pl:+,.0f} ({pct:+.1f}%)**"
+
+    sold   = row.get("sold_strike", "")
+    bought = row.get("bought_strike", "")
+    opt    = row.get("option_type", "")
+    spread_label = f"{opt} {sold}/{bought}" if sold and bought else "—"
+
+    credit_rs  = float(row.get("net_credit_rs", 0))
+    risk_rs    = float(row.get("max_risk_rs", 0))
+    exit_type  = row.get("exit_type", "—")
+    exit_time  = row.get("exit_time", "—")
+    nifty_in   = row.get("nifty_entry", "—")
+    nifty_out  = row.get("nifty_exit", "—")
+    direction  = row.get("direction", "—")
+    date_str   = row.get("date", "—")
+    day_str    = row.get("day", "")
+
+    block = (
+        f"| Field | Value |\n"
+        f"|-------|-------|\n"
+        f"| Date | {date_str} ({day_str}) |\n"
+        f"| Direction | {direction} |\n"
+        f"| Spread | {spread_label} — 4-wide |\n"
+        f"| Net Credit | Rs {credit_rs:,.0f} | \n"
+        f"| Capital at Risk | Rs {risk_rs:,.0f} |\n"
+        f"| Exit | {exit_type} at {exit_time} |\n"
+        f"| Nifty | {nifty_in} → {nifty_out} |\n"
+        f"| Net P&L | {pl_icon} {pl_bold} |\n"
+    )
+
+    if not _README.exists():
+        log.warning("README.md not found — skipping last-trade update")
+        return
+
+    text = _README.read_text(encoding="utf-8")
+    start_idx = text.find(_MARKER_START)
+    end_idx   = text.find(_MARKER_END)
+
+    if start_idx == -1 or end_idx == -1:
+        log.warning("README markers not found — skipping last-trade update")
+        return
+
+    new_text = (
+        text[: start_idx + len(_MARKER_START)]
+        + "\n"
+        + block
+        + text[end_idx:]
+    )
+    _README.write_text(new_text, encoding="utf-8")
+    log.info("README.md last-trade section updated")
+
+
+# ═══════════════════════════════════════════════════════════════════
 #  DASHBOARD
 # ═══════════════════════════════════════════════════════════════════
 def generate_dashboard():
@@ -374,7 +438,24 @@ def generate_dashboard():
     completed = df[df["status"] == "completed"].copy()
 
     if completed.empty:
-        log.info("No completed trades — skipping dashboard.")
+        fig, ax = plt.subplots(figsize=(14, 7), dpi=120)
+        ax.set_facecolor("#f8f9fa")
+        fig.patch.set_facecolor("#f8f9fa")
+        ax.text(0.5, 0.58, "🚀 RocketPaper", transform=ax.transAxes,
+                fontsize=26, fontweight="bold", ha="center", va="center", color="#2196F3")
+        ax.text(0.5, 0.44, "No trades logged yet.", transform=ax.transAxes,
+                fontsize=16, ha="center", va="center", color="#555555")
+        ax.text(0.5, 0.33, "First auto-run: next Tuesday at 13:35 IST", transform=ax.transAxes,
+                fontsize=11, ha="center", va="center", color="#888888", style="italic")
+        ax.text(0.5, 0.18,
+                "Backtest reference: 88 trades · 87.5% WR · Rs +1,23,266 total · MaxDD Rs 5,292",
+                transform=ax.transAxes, fontsize=9, ha="center", va="center",
+                color="#aaaaaa", fontfamily="monospace")
+        ax.axis("off")
+        plt.tight_layout()
+        plt.savefig(DASHBOARD_PNG, bbox_inches="tight")
+        plt.close()
+        log.info(f"Placeholder dashboard saved → {DASHBOARD_PNG.name}")
         return
 
     completed["date_dt"] = pd.to_datetime(completed["date"])
@@ -744,7 +825,22 @@ def run_bot():
         "notes": f"{check_count} checks",
     })
 
-    # Dashboard
+    # README last-trade card + Dashboard
+    update_readme_last_trade({
+        "date": str(today), "day": today.strftime("%A"),
+        "direction": direction,
+        "option_type": spread["option_type"],
+        "sold_strike": spread["sold_strike"],
+        "bought_strike": spread["bought_strike"],
+        "net_credit_rs": net_credit_rs,
+        "max_risk_rs": max_risk_rs,
+        "exit_type": exit_type,
+        "exit_time": exit_time_str or EXIT_TIME,
+        "nifty_entry": f"{nifty:.0f}",
+        "nifty_exit": f"{nifty_exit:.0f}",
+        "net_pl_rs": round(net_pl_rs, 2),
+        "net_pl_pct": round(net_pl_pct, 2),
+    })
     generate_dashboard()
     print_summary()
 

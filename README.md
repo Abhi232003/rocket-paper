@@ -33,6 +33,14 @@ Automated paper trading bot for a **Nifty 0-DTE credit spread** strategy, runnin
 
 ---
 
+## Last Trade
+
+<!-- LAST_TRADE_START -->
+_No trades logged yet. First auto-run: next Tuesday at 13:35 IST._
+<!-- LAST_TRADE_END -->
+
+---
+
 ## How It Works
 
 ```
