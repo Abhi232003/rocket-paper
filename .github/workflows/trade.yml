@@ -1,0 +1,68 @@
+name: RocketPaper — Nifty 0-DTE Paper Trader
+
+on:
+  # Single job: 13:30 IST = 08:00 UTC every Tuesday
+  # Bot runs continuously ~105 min (entry at 13:35, monitor, exit by 15:15)
+  schedule:
+    - cron: "0 8 * * 2"
+  workflow_dispatch:
+    inputs:
+      command:
+        description: "Command to run"
+        required: true
+        default: "test"
+        type: choice
+        options:
+          - run
+          - test
+          - summary
+          - dashboard
+
+env:
+  ANGEL_API_KEY:      ${{ secrets.ANGEL_API_KEY }}
+  ANGEL_CLIENT_ID:    ${{ secrets.ANGEL_CLIENT_ID }}
+  ANGEL_MPIN:         ${{ secrets.ANGEL_MPIN }}
+  ANGEL_TOTP_SECRET:  ${{ secrets.ANGEL_TOTP_SECRET }}
+  TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+  TELEGRAM_CHAT_ID:   ${{ secrets.TELEGRAM_CHAT_ID }}
+  TZ: Asia/Kolkata
+
+jobs:
+  trade:
+    runs-on: ubuntu-latest
+    timeout-minutes: 120
+    permissions:
+      contents: write
+
+    steps:
+      - name: Checkout repo
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install dependencies
+        run: pip install -r requirements.txt
+
+      - name: Determine command
+        id: cmd
+        run: |
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
+            echo "cmd=${{ github.event.inputs.command }}" >> $GITHUB_OUTPUT
+          else
+            echo "cmd=run" >> $GITHUB_OUTPUT
+          fi
+
+      - name: Run paper trader
+        run: python paper_trader.py ${{ steps.cmd.outputs.cmd }}
+
+      - name: Commit results
+        if: always()
+        run: |
+          git config user.name "RocketPaper Bot"
+          git config user.email "bot@noreply.github.com"
+          git add paper_trades.csv paper_checks.csv paper_dashboard.png || true
+          git diff --cached --quiet || git commit -m "📊 RocketPaper — $(TZ=Asia/Kolkata date '+%d %b %Y %H:%M IST')"
+          git push
