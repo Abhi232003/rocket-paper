@@ -15,7 +15,7 @@ Automated paper trading bot for a **Nifty 0-DTE credit spread** strategy, runnin
 | Stop Loss | 80% of max risk |
 | Entry | ~13:35 IST |
 | Exit | ~15:15 IST (expiry close) |
-| Monitoring | Every 5 min, TP/SL checked continuously |
+| Monitoring | Every 1 min, TP/SL checked continuously |
 | Lot size | 65 |
 
 **Backtest (real 1-min Nifty data, 21 months, 88 trades):**
@@ -52,7 +52,7 @@ Every Tuesday at 08:00 UTC (13:30 IST):
     ├─ Fetch Nifty LTP + option chain from Angel One
     ├─ Build credit spread, log entry
     │
-  13:40–15:10 IST → MONITOR (every 5 min)
+  13:40–15:10 IST → MONITOR (every 1 min)
     ├─ Fetch live option prices
     ├─ Check TP (20%) → exit immediately if hit
     ├─ Check SL (80%) → exit immediately if hit
