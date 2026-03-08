@@ -441,7 +441,7 @@ def generate_dashboard():
         fig, ax = plt.subplots(figsize=(14, 7), dpi=120)
         ax.set_facecolor("#f8f9fa")
         fig.patch.set_facecolor("#f8f9fa")
-        ax.text(0.5, 0.58, "🚀 RocketPaper", transform=ax.transAxes,
+        ax.text(0.5, 0.58, "[ RocketPaper ]", transform=ax.transAxes,
                 fontsize=26, fontweight="bold", ha="center", va="center", color="#2196F3")
         ax.text(0.5, 0.44, "No trades logged yet.", transform=ax.transAxes,
                 fontsize=16, ha="center", va="center", color="#555555")
