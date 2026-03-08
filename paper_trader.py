@@ -773,6 +773,13 @@ def run_test():
     direction, gap = get_dax_direction()
     print(f"DAX direction: {direction} (gap: {gap:+.2f}%)")
 
+    msg_lines = [
+        f"🧪 <b>RocketPaper DRY RUN</b>",
+        f"Date: {today} ({today.strftime('%A')})",
+        f"Expiry day: {is_expiry_day(today)}",
+        f"DAX: {direction} ({gap:+.2f}%)",
+    ]
+
     try:
         obj = angel_login()
         nifty = get_nifty_ltp(obj)
@@ -783,11 +790,21 @@ def run_test():
             spread = build_spread(nifty, direction or "Bullish", chain)
             print(f"Would sell: {spread['sold_strike']} {spread['option_type']}")
             print(f"Would buy:  {spread['bought_strike']} {spread['option_type']}")
+            msg_lines.append(f"Nifty LTP: {nifty:.0f}")
+            msg_lines.append(f"Would sell: {spread['sold_strike']} {spread['option_type']}")
+            msg_lines.append(f"Would buy:  {spread['bought_strike']} {spread['option_type']}")
             if spread.get("net_credit_rs"):
                 print(f"Credit: Rs {spread['net_credit_rs']:.0f}")
                 print(f"Risk:   Rs {spread['max_risk_rs']:.0f}")
+                msg_lines.append(f"Credit: Rs {spread['net_credit_rs']:.0f} | Risk: Rs {spread['max_risk_rs']:.0f}")
+            msg_lines.append("✅ All systems OK")
+        else:
+            msg_lines.append("⚠️ Could not fetch Nifty LTP")
     except Exception as e:
         print(f"API error: {e}")
+        msg_lines.append(f"❌ API error: {e}")
+
+    notify("\n".join(msg_lines))
 
 
 # ═══════════════════════════════════════════════════════════════════
