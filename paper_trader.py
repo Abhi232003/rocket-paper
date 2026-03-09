@@ -367,67 +367,129 @@ def log_check(trade_date: str, check_time: str, check_num: int,
 
 
 # ═══════════════════════════════════════════════════════════════════
-#  README — LAST TRADE UPDATE
+#  STATS HELPERS
+# ═══════════════════════════════════════════════════════════════════
+def get_streak(pls) -> str:
+    """Return current streak string e.g. '5W' or '2L'."""
+    if len(pls) == 0:
+        return "—"
+    streak = 0
+    last_sign = None
+    for pl in reversed(pls):
+        sign = "W" if pl > 0 else "L"
+        if last_sign is None:
+            last_sign = sign
+        if sign == last_sign:
+            streak += 1
+        else:
+            break
+    return f"{streak}{last_sign}"
+
+
+def get_portfolio_stats() -> dict:
+    """Compute portfolio stats from trades CSV."""
+    df = load_trades()
+    completed = df[df["status"] == "completed"].copy()
+    if completed.empty:
+        return {"n": 0}
+    pls = completed["net_pl_rs"].astype(float).values
+    n = len(pls)
+    wins = int((pls > 0).sum())
+    losses = n - wins
+    total = float(pls.sum())
+    avg = float(pls.mean())
+    best = float(pls.max())
+    worst = float(pls.min())
+    cum = np.cumsum(pls)
+    peak = np.maximum.accumulate(cum)
+    max_dd = float(np.max(peak - cum))
+    streak = get_streak(pls)
+    return {
+        "n": n, "wins": wins, "losses": losses,
+        "wr": wins / n * 100,
+        "total": total, "avg": avg,
+        "best": best, "worst": worst,
+        "max_dd": max_dd, "streak": streak,
+    }
+
+
+def next_trade_date() -> str:
+    """Return the next Tuesday date string."""
+    d = today_ist()
+    days_ahead = (EXPIRY_WEEKDAY - d.weekday()) % 7
+    if days_ahead == 0 and now_ist().hour >= 15:
+        days_ahead = 7
+    if days_ahead == 0:
+        return f"{d.strftime('%A, %d %b %Y')} (today!)"
+    nxt = d + timedelta(days=days_ahead)
+    return f"{nxt.strftime('%A, %d %b %Y')} at 13:35 IST"
+
+
+# ═══════════════════════════════════════════════════════════════════
+#  README — AUTO-UPDATE
 # ═══════════════════════════════════════════════════════════════════
 _README = Path(__file__).parent / "README.md"
-_MARKER_START = "<!-- LAST_TRADE_START -->"
-_MARKER_END   = "<!-- LAST_TRADE_END -->"
 
-def update_readme_last_trade(row: dict):
-    """Replace the Last Trade block in README.md with latest trade data."""
-    pl = float(row.get("net_pl_rs", 0))
-    pct = float(row.get("net_pl_pct", 0))
-    pl_icon = "✅" if pl > 0 else "🔴"
-    pl_bold = f"**Rs {pl:+,.0f} ({pct:+.1f}%)**"
+def _replace_block(text: str, marker_start: str, marker_end: str, content: str) -> str:
+    s = text.find(marker_start)
+    e = text.find(marker_end)
+    if s == -1 or e == -1:
+        return text
+    return text[:s + len(marker_start)] + "\n" + content + text[e:]
 
-    sold   = row.get("sold_strike", "")
-    bought = row.get("bought_strike", "")
-    opt    = row.get("option_type", "")
-    spread_label = f"{opt} {sold}/{bought}" if sold and bought else "—"
 
-    credit_rs  = float(row.get("net_credit_rs", 0))
-    risk_rs    = float(row.get("max_risk_rs", 0))
-    exit_type  = row.get("exit_type", "—")
-    exit_time  = row.get("exit_time", "—")
-    nifty_in   = row.get("nifty_entry", "—")
-    nifty_out  = row.get("nifty_exit", "—")
-    direction  = row.get("direction", "—")
-    date_str   = row.get("date", "—")
-    day_str    = row.get("day", "")
-
-    block = (
-        f"| Field | Value |\n"
-        f"|-------|-------|\n"
-        f"| Date | {date_str} ({day_str}) |\n"
-        f"| Direction | {direction} |\n"
-        f"| Spread | {spread_label} — 4-wide |\n"
-        f"| Net Credit | Rs {credit_rs:,.0f} | \n"
-        f"| Capital at Risk | Rs {risk_rs:,.0f} |\n"
-        f"| Exit | {exit_type} at {exit_time} |\n"
-        f"| Nifty | {nifty_in} → {nifty_out} |\n"
-        f"| Net P&L | {pl_icon} {pl_bold} |\n"
-    )
-
+def update_readme(row: dict = None):
+    """Update both stats table and last-trade block in README."""
     if not _README.exists():
-        log.warning("README.md not found — skipping last-trade update")
+        log.warning("README.md not found — skipping update")
         return
 
     text = _README.read_text(encoding="utf-8")
-    start_idx = text.find(_MARKER_START)
-    end_idx   = text.find(_MARKER_END)
 
-    if start_idx == -1 or end_idx == -1:
-        log.warning("README markers not found — skipping last-trade update")
-        return
+    # ── Stats table ──
+    s = get_portfolio_stats()
+    if s["n"] > 0:
+        stats_block = (
+            f"| Trades | Win Rate | Total P&L | Avg P&L | Max DD | Streak |\n"
+            f"|:------:|:--------:|:---------:|:-------:|:------:|:------:|\n"
+            f"| {s['n']} | {s['wr']:.0f}% ({s['wins']}W/{s['losses']}L) "
+            f"| Rs {s['total']:+,.0f} | Rs {s['avg']:+,.0f} "
+            f"| Rs {s['max_dd']:,.0f} | {s['streak']} |\n"
+        )
+    else:
+        stats_block = (
+            "| Trades | Win Rate | Total P&L | Avg P&L | Max DD | Streak |\n"
+            "|:------:|:--------:|:---------:|:-------:|:------:|:------:|\n"
+            "| 0 | — | Rs 0 | — | — | — |\n"
+        )
+    text = _replace_block(text, "<!-- STATS_START -->", "<!-- STATS_END -->", stats_block)
 
-    new_text = (
-        text[: start_idx + len(_MARKER_START)]
-        + "\n"
-        + block
-        + text[end_idx:]
-    )
-    _README.write_text(new_text, encoding="utf-8")
-    log.info("README.md last-trade section updated")
+    # ── Last trade ──
+    if row:
+        pl = float(row.get("net_pl_rs", 0))
+        pct = float(row.get("net_pl_pct", 0))
+        pl_icon = "W" if pl > 0 else "L"
+        sold   = row.get("sold_strike", "")
+        bought = row.get("bought_strike", "")
+        opt    = row.get("option_type", "")
+        spread_label = f"{opt} {sold}/{bought}" if sold and bought else "—"
+
+        trade_block = (
+            f"| Field | Value |\n"
+            f"|-------|-------|\n"
+            f"| Date | {row.get('date', '—')} ({row.get('day', '')}) |\n"
+            f"| Direction | {row.get('direction', '—')} |\n"
+            f"| Spread | {spread_label} (4-wide) |\n"
+            f"| Credit | Rs {float(row.get('net_credit_rs', 0)):,.0f} |\n"
+            f"| Risk | Rs {float(row.get('max_risk_rs', 0)):,.0f} |\n"
+            f"| Exit | {row.get('exit_type', '—')} at {row.get('exit_time', '—')} |\n"
+            f"| Nifty | {row.get('nifty_entry', '—')} -> {row.get('nifty_exit', '—')} |\n"
+            f"| Result | **{pl_icon} Rs {pl:+,.0f} ({pct:+.1f}%)** |\n"
+        )
+        text = _replace_block(text, "<!-- LAST_TRADE_START -->", "<!-- LAST_TRADE_END -->", trade_block)
+
+    _README.write_text(text, encoding="utf-8")
+    log.info("README.md updated (stats + last trade)")
 
 
 # ═══════════════════════════════════════════════════════════════════
@@ -548,7 +610,7 @@ def generate_dashboard():
 
 
 # ═══════════════════════════════════════════════════════════════════
-#  SUMMARY
+#  SUMMARY (console)
 # ═══════════════════════════════════════════════════════════════════
 def print_summary():
     df = load_trades()
@@ -585,6 +647,134 @@ def print_summary():
               f"{str(t.get('exit_type','')):<9} {float(t.get('net_pl_rs',0)):>+7,.0f} {pct}")
 
     print(f"{'='*60}\n")
+
+
+# ═══════════════════════════════════════════════════════════════════
+#  TELEGRAM COMMANDS
+# ═══════════════════════════════════════════════════════════════════
+def cmd_status():
+    """Send current status / next trade info to Telegram."""
+    s = get_portfolio_stats()
+    today = today_ist()
+    is_exp = is_expiry_day(today)
+    nxt = next_trade_date()
+
+    lines = ["<b>STATUS</b>"]
+    if is_exp and 13 <= now_ist().hour < 16:
+        lines.append("Trade may be ACTIVE right now")
+    elif is_exp:
+        lines.append(f"Expiry day — trade window: 13:35-15:15 IST")
+    else:
+        lines.append(f"Next trade: {nxt}")
+
+    if s["n"] > 0:
+        lines.append(f"\nTrades: {s['n']} | WR: {s['wr']:.0f}%")
+        lines.append(f"P&L: Rs {s['total']:+,.0f} | Streak: {s['streak']}")
+    else:
+        lines.append("\nNo trades yet.")
+
+    notify("\n".join(lines))
+    print("Status sent to Telegram.")
+
+
+def cmd_lasttrade():
+    """Send last trade details to Telegram."""
+    df = load_trades()
+    completed = df[df["status"] == "completed"]
+
+    if completed.empty:
+        notify("<b>LAST TRADE</b>\n\nNo completed trades yet.")
+        print("Last trade sent to Telegram.")
+        return
+
+    t = completed.iloc[-1]
+    pl = float(t.get("net_pl_rs", 0))
+    pct = float(t.get("net_pl_pct", 0))
+    icon = "W" if pl > 0 else "L"
+
+    lines = [
+        f"<b>LAST TRADE</b>",
+        f"",
+        f"Date: {t.get('date', '—')} ({t.get('day', '')})",
+        f"Direction: {t.get('direction', '—')}",
+        f"Spread: {t.get('option_type', '')} {t.get('sold_strike', '')}/{t.get('bought_strike', '')} (4-wide)",
+        f"Credit: Rs {float(t.get('net_credit_rs', 0)):,.0f}",
+        f"Risk: Rs {float(t.get('max_risk_rs', 0)):,.0f}",
+        f"Nifty: {t.get('nifty_entry', '—')} -> {t.get('nifty_exit', '—')}",
+        f"Exit: {t.get('exit_type', '—')} at {t.get('exit_time', '—')}",
+        f"",
+        f"Gross P&L: Rs {float(t.get('gross_pl_rs', 0)):+,.0f}",
+        f"Costs: Rs {float(t.get('cost_rs', 0)):,.0f}",
+        f"<b>Net P&L: {icon} Rs {pl:+,.0f} ({pct:+.1f}%)</b>",
+    ]
+    notify("\n".join(lines))
+    print("Last trade sent to Telegram.")
+
+
+def cmd_portfolio():
+    """Send portfolio summary to Telegram."""
+    s = get_portfolio_stats()
+    if s["n"] == 0:
+        notify("<b>PORTFOLIO</b>\n\nNo completed trades yet.")
+        print("Portfolio sent to Telegram.")
+        return
+
+    lines = [
+        f"<b>PORTFOLIO SUMMARY</b>",
+        f"",
+        f"Trades: {s['n']} ({s['wins']}W / {s['losses']}L)",
+        f"Win Rate: {s['wr']:.0f}%",
+        f"Streak: {s['streak']}",
+        f"",
+        f"Total P&L: Rs {s['total']:+,.0f}",
+        f"Avg P&L: Rs {s['avg']:+,.0f}",
+        f"Best: Rs {s['best']:+,.0f}",
+        f"Worst: Rs {s['worst']:+,.0f}",
+        f"Max Drawdown: Rs {s['max_dd']:,.0f}",
+        f"",
+        f"Next trade: {next_trade_date()}",
+    ]
+    notify("\n".join(lines))
+    print("Portfolio sent to Telegram.")
+
+
+def cmd_alltrades():
+    """Send all trades table to Telegram."""
+    df = load_trades()
+    completed = df[df["status"] == "completed"]
+
+    if completed.empty:
+        notify("<b>ALL TRADES</b>\n\nNo completed trades yet.")
+        print("All trades sent to Telegram.")
+        return
+
+    lines = ["<b>ALL TRADES</b>", ""]
+    for i, (_, t) in enumerate(completed.iterrows(), 1):
+        pl = float(t.get("net_pl_rs", 0))
+        pct = float(t.get("net_pl_pct", 0))
+        icon = "W" if pl > 0 else "L"
+        d = t.get("date", "—")
+        ext = str(t.get("exit_type", "—"))[:4]
+        lines.append(f"{i}. {d} | {ext} | {icon} Rs {pl:+,.0f} ({pct:+.1f}%)")
+
+    s = get_portfolio_stats()
+    lines.append(f"\nTotal: Rs {s['total']:+,.0f} | WR: {s['wr']:.0f}% | Streak: {s['streak']}")
+
+    # Telegram has a 4096 char limit; split if needed
+    msg = "\n".join(lines)
+    if len(msg) > 4000:
+        # Send the last 50 trades only
+        lines_short = ["<b>ALL TRADES (recent)</b>", ""]
+        for i, (_, t) in enumerate(completed.tail(50).iterrows(), 1):
+            pl = float(t.get("net_pl_rs", 0))
+            pct = float(t.get("net_pl_pct", 0))
+            icon = "W" if pl > 0 else "L"
+            lines_short.append(f"{i}. {t.get('date','—')} | {str(t.get('exit_type','—'))[:4]} | {icon} Rs {pl:+,.0f} ({pct:+.1f}%)")
+        lines_short.append(f"\nTotal: Rs {s['total']:+,.0f} | WR: {s['wr']:.0f}% | Streak: {s['streak']}")
+        msg = "\n".join(lines_short)
+
+    notify(msg)
+    print("All trades sent to Telegram.")
 
 
 # ═══════════════════════════════════════════════════════════════════
@@ -825,8 +1015,8 @@ def run_bot():
         "notes": f"{check_count} checks",
     })
 
-    # README last-trade card + Dashboard
-    update_readme_last_trade({
+    # README + Dashboard
+    update_readme({
         "date": str(today), "day": today.strftime("%A"),
         "direction": direction,
         "option_type": spread["option_type"],
@@ -846,13 +1036,15 @@ def run_bot():
 
     log.info(f"\nRESULT: {exit_type} — Rs {net_pl_rs:+,.0f} ({net_pl_pct:+.1f}%)")
 
+    s = get_portfolio_stats()
     emoji = "\u2705" if net_pl_rs > 0 else "\U0001f534"
     notify(
         f"{emoji} <b>TRADE CLOSED — {exit_type}</b>\n"
         f"Net P&L: Rs {net_pl_rs:+,.0f} ({net_pl_pct:+.1f}%)\n"
         f"Gross: Rs {gross_pl_rs:+,.0f} | Costs: Rs {cost_rs:,.0f}\n"
         f"Nifty: {nifty:.0f} \u2192 {nifty_exit:.0f}\n"
-        f"Checks: {check_count} | Status: {status}"
+        f"Checks: {check_count} | Status: {status}\n"
+        f"\nStreak: {s['streak']} | WR: {s['wr']:.0f}% | Total: Rs {s['total']:+,.0f}"
     )
 
 
@@ -917,6 +1109,15 @@ if __name__ == "__main__":
         print_summary()
     elif cmd == "dashboard":
         generate_dashboard()
+        update_readme()
         print("Dashboard regenerated.")
+    elif cmd == "status":
+        cmd_status()
+    elif cmd == "lasttrade":
+        cmd_lasttrade()
+    elif cmd == "portfolio":
+        cmd_portfolio()
+    elif cmd == "alltrades":
+        cmd_alltrades()
     else:
-        print("Usage: python paper_trader.py <run|test|summary|dashboard>")
+        print("Usage: python paper_trader.py <run|test|status|lasttrade|portfolio|alltrades|summary|dashboard>")

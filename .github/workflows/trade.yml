@@ -15,6 +15,10 @@ on:
         options:
           - run
           - test
+          - status
+          - lasttrade
+          - portfolio
+          - alltrades
           - summary
           - dashboard
 
