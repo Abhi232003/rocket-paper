@@ -1,0 +1,2 @@
+date,day,direction,gap_pct,entry_time,nifty_entry,nifty_exit,option_type,sold_strike,bought_strike,spread_width,sold_entry_prem,bought_entry_prem,sold_iv_entry,bought_iv_entry,sold_exit_prem,bought_exit_prem,net_credit,net_credit_rs,max_risk_rs,exit_type,exit_time,gross_pl_rs,cost_rs,net_pl_rs,net_pl_pct,prices_source,status,notes
+2026-03-10,Tuesday,Bullish,2.038,14:40,24234.4,24258.3,PE,24250,24050,200,37.0,1.3,0,0,2.7,0.1,35.7,2320.5,10679.5,TP,15:08,2151.5,120.54,2030.96,19.02,market_data_full,completed,29 checks
