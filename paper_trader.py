@@ -250,7 +250,38 @@ def build_spread(nifty_price: float, direction: str,
         sold_row   = chain[chain["strike"] == sold_strike]
         bought_row = chain[chain["strike"] == bought_strike]
 
+        if sold_row.empty or bought_row.empty:
+            available = sorted(chain["strike"].unique())
+            log.warning(f"Strikes {int(sold_strike)}/{int(bought_strike)} not in chain")
+            log.info(f"Available strikes ({len(available)}): {[int(s) for s in available]}")
+
+            # Snap to nearest available OTM strike for the sold leg
+            if direction == "Bullish":
+                candidates = [s for s in available if s <= atm]
+                adj_sold = max(candidates) if candidates else None
+            else:
+                candidates = [s for s in available if s >= atm]
+                adj_sold = min(candidates) if candidates else None
+
+            if adj_sold is not None:
+                target_bought = (adj_sold - SPREAD_WIDTH if direction == "Bullish"
+                                 else adj_sold + SPREAD_WIDTH)
+                others = [s for s in available if s != adj_sold]
+                adj_bought = (min(others, key=lambda s: abs(s - target_bought))
+                              if others else None)
+                if adj_bought is not None:
+                    sold_strike   = adj_sold
+                    bought_strike = adj_bought
+                    spread["sold_strike"]   = int(sold_strike)
+                    spread["bought_strike"] = int(bought_strike)
+                    spread["spread_width"]  = int(abs(bought_strike - sold_strike))
+                    log.info(f"Adjusted strikes: {int(sold_strike)}/{int(bought_strike)} "
+                             f"(width {int(abs(bought_strike - sold_strike))}pt)")
+                    sold_row   = chain[chain["strike"] == sold_strike]
+                    bought_row = chain[chain["strike"] == bought_strike]
+
         if not sold_row.empty and not bought_row.empty:
+            actual_width = spread["spread_width"]
             sold_bid = float(sold_row[bid_col].iloc[0])
             sold_ltp = float(sold_row[ltp_col].iloc[0])
             bought_ask = float(bought_row[ask_col].iloc[0])
@@ -264,10 +295,10 @@ def build_spread(nifty_price: float, direction: str,
             net_credit = spread["sold_premium"] - spread["bought_premium"]
             spread["net_credit"]    = round(net_credit, 2)
             spread["net_credit_rs"] = round(net_credit * LOT_SIZE, 2)
-            spread["max_risk_rs"]   = round((SPREAD_WIDTH - net_credit) * LOT_SIZE, 2)
+            spread["max_risk_rs"]   = round((actual_width - net_credit) * LOT_SIZE, 2)
             spread["prices_source"] = "live_chain"
         else:
-            log.warning(f"Strikes {sold_strike}/{bought_strike} not in chain")
+            log.warning(f"Strikes {spread['sold_strike']}/{spread['bought_strike']} not in chain")
             spread["prices_source"] = "missing"
     else:
         spread["prices_source"] = "no_chain"
