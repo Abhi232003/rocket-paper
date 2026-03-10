@@ -173,24 +173,42 @@ def get_nifty_ltp(obj: SmartConnect) -> Optional[float]:
     return None
 
 
+def _pick(item: dict, *keys, default=0.0) -> float:
+    """Return float value of first key found in item (case-insensitive fallback)."""
+    for k in keys:
+        v = item.get(k)
+        if v is not None and v != "":
+            try:
+                return float(v)
+            except (ValueError, TypeError):
+                pass
+    return float(default)
+
+
 def get_option_greeks(obj: SmartConnect, expiry_str: str) -> Optional[pd.DataFrame]:
     try:
         data = obj.optionGreek({"name": "NIFTY", "expirydate": expiry_str})
         if data and data.get("status") and data.get("data"):
+            items = data["data"]
+            if items:
+                log.info(f"optionGreek raw keys: {list(items[0].keys())}")
+                log.info(f"optionGreek sample item: {items[0]}")
             rows = []
-            for item in data["data"]:
+            for item in items:
                 rows.append({
-                    "strike":   float(item.get("strikeprice", 0)),
-                    "CE_ltp":   float(item.get("ce_ltp", 0)),
-                    "PE_ltp":   float(item.get("pe_ltp", 0)),
-                    "CE_bid":   float(item.get("ce_bestbid", 0)),
-                    "PE_bid":   float(item.get("pe_bestbid", 0)),
-                    "CE_ask":   float(item.get("ce_bestask", 0)),
-                    "PE_ask":   float(item.get("pe_bestask", 0)),
-                    "CE_iv":    float(item.get("ce_iv", 0)),
-                    "PE_iv":    float(item.get("pe_iv", 0)),
+                    "strike": _pick(item, "strikePrice", "strikeprice", "strike_price", "StrikePrice"),
+                    "CE_ltp": _pick(item, "CE_LTP", "ce_ltp", "ceLtp"),
+                    "PE_ltp": _pick(item, "PE_LTP", "pe_ltp", "peLtp"),
+                    "CE_bid": _pick(item, "CE_BestBid", "ce_bestbid", "ceBestBid"),
+                    "PE_bid": _pick(item, "PE_BestBid", "pe_bestbid", "peBestBid"),
+                    "CE_ask": _pick(item, "CE_BestAsk", "ce_bestask", "ceBestAsk"),
+                    "PE_ask": _pick(item, "PE_BestAsk", "pe_bestask", "peBestAsk"),
+                    "CE_iv":  _pick(item, "CE_IV", "ce_iv", "ceIv"),
+                    "PE_iv":  _pick(item, "PE_IV", "pe_iv", "peIv"),
                 })
-            return pd.DataFrame(rows)
+            df = pd.DataFrame(rows)
+            log.info(f"optionGreek: {len(df)} strikes, range {df['strike'].min():.0f}–{df['strike'].max():.0f}")
+            return df
     except Exception as e:
         log.error(f"Error fetching option chain: {e}")
     return None
