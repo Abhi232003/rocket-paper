@@ -173,45 +173,75 @@ def get_nifty_ltp(obj: SmartConnect) -> Optional[float]:
     return None
 
 
-def _pick(item: dict, *keys, default=0.0) -> float:
-    """Return float value of first key found in item (case-insensitive fallback)."""
-    for k in keys:
-        v = item.get(k)
-        if v is not None and v != "":
-            try:
-                return float(v)
-            except (ValueError, TypeError):
-                pass
-    return float(default)
+# ═══════════════════════════════════════════════════════════════════
+#  ANGEL ONE MARKET DATA (real prices via searchScrip + getMarketData)
+# ═══════════════════════════════════════════════════════════════════
+def find_option_token(obj: SmartConnect, expiry_date: date,
+                     opt_type: str, strike: int) -> tuple:
+    """Find NFO symbol token via searchScrip. Returns (token, symbol) or (None, None)."""
+    expiry_str = expiry_date.strftime("%d%b%Y").upper()
+    # Try multiple search formats
+    searches = [
+        f"NIFTY{expiry_str}{opt_type}{strike}",
+        f"NIFTY {expiry_str} {opt_type} {strike}",
+        f"NIFTY{expiry_str}{opt_type[0]}{strike}",
+    ]
+    for search_sym in searches:
+        try:
+            result = obj.searchScrip("NFO", search_sym)
+            log.info(f"searchScrip('NFO', '{search_sym}'): "
+                     f"status={result.get('status') if result else None}, "
+                     f"count={len(result.get('data', [])) if result else 0}")
+            if result and result.get("status") and result.get("data"):
+                for item in result["data"]:
+                    sym = item.get("tradingsymbol", "")
+                    if str(strike) in sym and opt_type[0] in sym.upper():
+                        log.info(f"  Found: {sym} (token={item['symboltoken']})")
+                        return item["symboltoken"], sym
+        except Exception as e:
+            log.warning(f"searchScrip error for '{search_sym}': {e}")
+    log.warning(f"Could not find token for NIFTY {opt_type} {strike} {expiry_str}")
+    return None, None
 
 
-def get_option_greeks(obj: SmartConnect, expiry_str: str) -> Optional[pd.DataFrame]:
+def get_option_prices(obj: SmartConnect, token_map: Dict) -> Dict:
+    """Fetch FULL market data for option tokens.
+    token_map: {strike: {"token": str, "symbol": str}}
+    Returns:   {strike: {"ltp": float, "bid": float, "ask": float}}
+    """
+    if not token_map:
+        return {}
+    nfo_tokens = [str(info["token"]) for info in token_map.values()]
+    reverse = {str(info["token"]): strike for strike, info in token_map.items()}
     try:
-        data = obj.optionGreek({"name": "NIFTY", "expirydate": expiry_str})
-        if data and data.get("status") and data.get("data"):
-            items = data["data"]
-            if items:
-                log.info(f"optionGreek raw keys: {list(items[0].keys())}")
-                log.info(f"optionGreek sample item: {items[0]}")
-            rows = []
-            for item in items:
-                rows.append({
-                    "strike": _pick(item, "strikePrice", "strikeprice", "strike_price", "StrikePrice"),
-                    "CE_ltp": _pick(item, "CE_LTP", "ce_ltp", "ceLtp"),
-                    "PE_ltp": _pick(item, "PE_LTP", "pe_ltp", "peLtp"),
-                    "CE_bid": _pick(item, "CE_BestBid", "ce_bestbid", "ceBestBid"),
-                    "PE_bid": _pick(item, "PE_BestBid", "pe_bestbid", "peBestBid"),
-                    "CE_ask": _pick(item, "CE_BestAsk", "ce_bestask", "ceBestAsk"),
-                    "PE_ask": _pick(item, "PE_BestAsk", "pe_bestask", "peBestAsk"),
-                    "CE_iv":  _pick(item, "CE_IV", "ce_iv", "ceIv"),
-                    "PE_iv":  _pick(item, "PE_IV", "pe_iv", "peIv"),
-                })
-            df = pd.DataFrame(rows)
-            log.info(f"optionGreek: {len(df)} strikes, range {df['strike'].min():.0f}–{df['strike'].max():.0f}")
-            return df
+        data = obj.getMarketData(mode="FULL", exchangeTokens={"NFO": nfo_tokens})
+        log.info(f"getMarketData: status={data.get('status')}, "
+                 f"fetched={len(data.get('data', {}).get('fetched', []))}, "
+                 f"unfetched={len(data.get('data', {}).get('unfetched', []))}")
     except Exception as e:
-        log.error(f"Error fetching option chain: {e}")
-    return None
+        log.error(f"getMarketData error: {e}")
+        return {}
+
+    prices = {}
+    if data and data.get("status") and data.get("data"):
+        for item in data["data"].get("fetched", []):
+            token = str(item.get("symbolToken", item.get("symboltoken", "")))
+            strike = reverse.get(token)
+            if strike is None:
+                continue
+            ltp = float(item.get("ltp", 0))
+            depth = item.get("depth", {})
+            buys = depth.get("buy", [])
+            sells = depth.get("sell", [])
+            bid = float(buys[0]["price"]) if buys and buys[0].get("price") else ltp
+            ask = float(sells[0]["price"]) if sells and sells[0].get("price") else ltp
+            prices[strike] = {"ltp": ltp, "bid": bid, "ask": ask}
+            log.info(f"  {item.get('tradingSymbol', '')}: ltp={ltp}, bid={bid}, ask={ask}")
+
+        for item in data["data"].get("unfetched", []):
+            log.warning(f"  Unfetched: {item}")
+
+    return prices
 
 
 # ═══════════════════════════════════════════════════════════════════
@@ -240,8 +270,8 @@ def get_dax_direction() -> tuple:
 # ═══════════════════════════════════════════════════════════════════
 #  SPREAD
 # ═══════════════════════════════════════════════════════════════════
-def build_spread(nifty_price: float, direction: str,
-                 chain: Optional[pd.DataFrame]) -> Dict:
+def build_spread(nifty_price: float, direction: str) -> Dict:
+    """Pick strikes for credit spread. Prices are fetched separately."""
     atm = round(nifty_price / STRIKE_STEP) * STRIKE_STEP
 
     if direction == "Bullish":
@@ -253,114 +283,11 @@ def build_spread(nifty_price: float, direction: str,
         sold_strike   = atm
         bought_strike = atm + SPREAD_WIDTH
 
-    spread = {
+    return {
         "direction": direction, "option_type": opt_type,
         "sold_strike": int(sold_strike), "bought_strike": int(bought_strike),
         "spread_width": SPREAD_WIDTH, "nifty_price": round(nifty_price, 2),
     }
-
-    if chain is not None and not chain.empty:
-        bid_col = f"{opt_type}_bid"
-        ask_col = f"{opt_type}_ask"
-        ltp_col = f"{opt_type}_ltp"
-        iv_col  = f"{opt_type}_iv"
-
-        sold_row   = chain[chain["strike"] == sold_strike]
-        bought_row = chain[chain["strike"] == bought_strike]
-
-        if sold_row.empty or bought_row.empty:
-            available = sorted(chain["strike"].unique())
-            log.warning(f"Strikes {int(sold_strike)}/{int(bought_strike)} not in chain")
-            log.info(f"Available strikes ({len(available)}): {[int(s) for s in available]}")
-
-            # Snap to nearest available OTM strike for the sold leg
-            if direction == "Bullish":
-                candidates = [s for s in available if s <= atm]
-                adj_sold = max(candidates) if candidates else None
-            else:
-                candidates = [s for s in available if s >= atm]
-                adj_sold = min(candidates) if candidates else None
-
-            if adj_sold is not None:
-                target_bought = (adj_sold - SPREAD_WIDTH if direction == "Bullish"
-                                 else adj_sold + SPREAD_WIDTH)
-                others = [s for s in available if s != adj_sold]
-                adj_bought = (min(others, key=lambda s: abs(s - target_bought))
-                              if others else None)
-                if adj_bought is not None:
-                    sold_strike   = adj_sold
-                    bought_strike = adj_bought
-                    spread["sold_strike"]   = int(sold_strike)
-                    spread["bought_strike"] = int(bought_strike)
-                    spread["spread_width"]  = int(abs(bought_strike - sold_strike))
-                    log.info(f"Adjusted strikes: {int(sold_strike)}/{int(bought_strike)} "
-                             f"(width {int(abs(bought_strike - sold_strike))}pt)")
-                    sold_row   = chain[chain["strike"] == sold_strike]
-                    bought_row = chain[chain["strike"] == bought_strike]
-
-        if not sold_row.empty and not bought_row.empty:
-            actual_width = spread["spread_width"]
-            sold_bid = float(sold_row[bid_col].iloc[0])
-            sold_ltp = float(sold_row[ltp_col].iloc[0])
-            bought_ask = float(bought_row[ask_col].iloc[0])
-            bought_ltp = float(bought_row[ltp_col].iloc[0])
-
-            spread["sold_premium"]   = sold_bid if sold_bid > 0 else sold_ltp
-            spread["bought_premium"] = bought_ask if bought_ask > 0 else bought_ltp
-            spread["sold_iv"]   = float(sold_row[iv_col].iloc[0])
-            spread["bought_iv"] = float(bought_row[iv_col].iloc[0])
-
-            net_credit = spread["sold_premium"] - spread["bought_premium"]
-            spread["net_credit"]    = round(net_credit, 2)
-            spread["net_credit_rs"] = round(net_credit * LOT_SIZE, 2)
-            spread["max_risk_rs"]   = round((actual_width - net_credit) * LOT_SIZE, 2)
-            spread["prices_source"] = "live_chain"
-        else:
-            log.warning(f"Strikes {spread['sold_strike']}/{spread['bought_strike']} not in chain")
-            spread["prices_source"] = "missing"
-    else:
-        spread["prices_source"] = "no_chain"
-
-    return spread
-
-
-def get_spread_value(obj: SmartConnect, expiry_str: str, spread: Dict) -> Optional[float]:
-    """Get current spread value (sold - bought) from live chain."""
-    chain = get_option_greeks(obj, expiry_str)
-    if chain is None or chain.empty:
-        return None
-
-    opt_type = spread["option_type"]
-    ltp_col = f"{opt_type}_ltp"
-
-    sold_row   = chain[chain["strike"] == spread["sold_strike"]]
-    bought_row = chain[chain["strike"] == spread["bought_strike"]]
-
-    if sold_row.empty or bought_row.empty:
-        return None
-
-    sold_ltp   = float(sold_row[ltp_col].iloc[0])
-    bought_ltp = float(bought_row[ltp_col].iloc[0])
-
-    return sold_ltp - bought_ltp
-
-
-def get_exit_premiums(obj: SmartConnect, expiry_str: str, spread: Dict) -> tuple:
-    """Get individual sold/bought exit LTPs from live chain."""
-    chain = get_option_greeks(obj, expiry_str)
-    if chain is None or chain.empty:
-        return None, None
-
-    opt_type = spread["option_type"]
-    ltp_col = f"{opt_type}_ltp"
-
-    sold_row   = chain[chain["strike"] == spread["sold_strike"]]
-    bought_row = chain[chain["strike"] == spread["bought_strike"]]
-
-    if sold_row.empty or bought_row.empty:
-        return None, None
-
-    return float(sold_row[ltp_col].iloc[0]), float(bought_row[ltp_col].iloc[0])
 
 
 def compute_costs(sold_prem: float, bought_prem: float) -> float:
@@ -870,22 +797,56 @@ def run_bot():
 
     log.info(f"Nifty at entry: {nifty:.2f}")
 
-    expiry_str = get_expiry_string(today)
-    chain = get_option_greeks(obj, expiry_str)
-    spread = build_spread(nifty, direction, chain)
+    spread = build_spread(nifty, direction)
+    log.info(f"Spread: Sell {spread['sold_strike']} {spread['option_type']}, "
+             f"Buy {spread['bought_strike']} {spread['option_type']}")
 
-    if spread.get("sold_premium") is None or spread.get("bought_premium") is None:
-        log.warning("Could not get option prices. Aborting.")
+    # Find NFO tokens for our two strikes
+    sold_token, sold_sym = find_option_token(
+        obj, today, spread["option_type"], spread["sold_strike"])
+    bought_token, bought_sym = find_option_token(
+        obj, today, spread["option_type"], spread["bought_strike"])
+
+    if not sold_token or not bought_token:
+        log.warning(f"Could not find option tokens (sold={sold_token}, bought={bought_token}). Aborting.")
+        log_trade({"date": str(today), "day": today.strftime("%A"),
+                   "direction": direction, "gap_pct": round(gap_pct, 3),
+                   "nifty_entry": nifty, "status": "no_option_tokens",
+                   "prices_source": "token_not_found"})
+        notify(f"\u26a0\ufe0f <b>No Trade</b> — Option tokens not found\nNifty: {nifty:.0f}")
+        return
+
+    token_map = {
+        spread["sold_strike"]:   {"token": sold_token, "symbol": sold_sym},
+        spread["bought_strike"]: {"token": bought_token, "symbol": bought_sym},
+    }
+
+    # Get entry prices from Market Data API (FULL mode = LTP + bid/ask depth)
+    prices = get_option_prices(obj, token_map)
+    sold_p = prices.get(spread["sold_strike"])
+    bought_p = prices.get(spread["bought_strike"])
+
+    if not sold_p or not bought_p:
+        log.warning("Could not get option prices from Market Data API. Aborting.")
         log_trade({"date": str(today), "day": today.strftime("%A"),
                    "direction": direction, "gap_pct": round(gap_pct, 3),
                    "nifty_entry": nifty, "status": "no_option_prices",
-                   "prices_source": spread.get("prices_source", "unknown")})
+                   "prices_source": "market_data_empty"})
         notify(f"\u26a0\ufe0f <b>No Trade</b> — Option prices unavailable\nNifty: {nifty:.0f}")
         return
 
-    net_credit = spread["net_credit"]
-    net_credit_rs = spread["net_credit_rs"]
-    max_risk_rs = spread["max_risk_rs"]
+    spread["sold_premium"]   = sold_p["bid"] if sold_p["bid"] > 0 else sold_p["ltp"]
+    spread["bought_premium"] = bought_p["ask"] if bought_p["ask"] > 0 else bought_p["ltp"]
+    spread["sold_iv"] = 0
+    spread["bought_iv"] = 0
+
+    net_credit = round(spread["sold_premium"] - spread["bought_premium"], 2)
+    net_credit_rs = round(net_credit * LOT_SIZE, 2)
+    max_risk_rs = round((SPREAD_WIDTH - net_credit) * LOT_SIZE, 2)
+    spread["net_credit"] = net_credit
+    spread["net_credit_rs"] = net_credit_rs
+    spread["max_risk_rs"] = max_risk_rs
+    spread["prices_source"] = "market_data_full"
 
     log.info(f"ENTRY: Sell {spread['sold_strike']} {spread['option_type']}, "
              f"Buy {spread['bought_strike']} {spread['option_type']}")
@@ -951,10 +912,13 @@ def run_bot():
             log.warning(f"Check #{check_count}: No Nifty price")
             continue
 
-        spread_value = get_spread_value(obj, expiry_str, spread)
-        if spread_value is None:
+        prices = get_option_prices(obj, token_map)
+        s_p = prices.get(spread["sold_strike"])
+        b_p = prices.get(spread["bought_strike"])
+        if not s_p or not b_p:
             log.warning(f"Check #{check_count}: No option prices")
             continue
+        spread_value = s_p["ltp"] - b_p["ltp"]
 
         nifty_exit = nifty_now
         # Current spread value = what we'd pay to close
@@ -1004,8 +968,16 @@ def run_bot():
     # Get final prices
     try:
         nifty_exit = get_nifty_ltp(obj) or nifty_exit
-        final_spread_value = get_spread_value(obj, expiry_str, spread)
-        sold_exit_real, bought_exit_real = get_exit_premiums(obj, expiry_str, spread)
+        prices = get_option_prices(obj, token_map)
+        s_p = prices.get(spread["sold_strike"])
+        b_p = prices.get(spread["bought_strike"])
+        if s_p and b_p:
+            final_spread_value = s_p["ltp"] - b_p["ltp"]
+            sold_exit_real = s_p["ltp"]
+            bought_exit_real = b_p["ltp"]
+        else:
+            final_spread_value = None
+            sold_exit_real, bought_exit_real = None, None
     except Exception:
         final_spread_value = None
         sold_exit_real, bought_exit_real = None, None
@@ -1122,18 +1094,36 @@ def run_test():
         nifty = get_nifty_ltp(obj)
         if nifty:
             print(f"Nifty LTP: {nifty:.2f}")
-            expiry_str = get_expiry_string(today)
-            chain = get_option_greeks(obj, expiry_str)
-            spread = build_spread(nifty, direction or "Bullish", chain)
+            spread = build_spread(nifty, direction or "Bullish")
             print(f"Would sell: {spread['sold_strike']} {spread['option_type']}")
             print(f"Would buy:  {spread['bought_strike']} {spread['option_type']}")
             msg_lines.append(f"Nifty LTP: {nifty:.0f}")
             msg_lines.append(f"Would sell: {spread['sold_strike']} {spread['option_type']}")
             msg_lines.append(f"Would buy:  {spread['bought_strike']} {spread['option_type']}")
-            if spread.get("net_credit_rs"):
-                print(f"Credit: Rs {spread['net_credit_rs']:.0f}")
-                print(f"Risk:   Rs {spread['max_risk_rs']:.0f}")
-                msg_lines.append(f"Credit: Rs {spread['net_credit_rs']:.0f} | Risk: Rs {spread['max_risk_rs']:.0f}")
+
+            # Test token lookup + market data
+            sold_tok, sold_sym = find_option_token(
+                obj, today_ist(), spread["option_type"], spread["sold_strike"])
+            bought_tok, bought_sym = find_option_token(
+                obj, today_ist(), spread["option_type"], spread["bought_strike"])
+            if sold_tok and bought_tok:
+                token_map = {
+                    spread["sold_strike"]:   {"token": sold_tok, "symbol": sold_sym},
+                    spread["bought_strike"]: {"token": bought_tok, "symbol": bought_sym},
+                }
+                prices = get_option_prices(obj, token_map)
+                s_p = prices.get(spread["sold_strike"])
+                b_p = prices.get(spread["bought_strike"])
+                if s_p and b_p:
+                    nc = s_p["bid"] - b_p["ask"] if s_p["bid"] > 0 else s_p["ltp"] - b_p["ltp"]
+                    risk = (SPREAD_WIDTH - nc) * LOT_SIZE
+                    print(f"Credit: Rs {nc * LOT_SIZE:.0f}")
+                    print(f"Risk:   Rs {risk:.0f}")
+                    msg_lines.append(f"Credit: Rs {nc * LOT_SIZE:.0f} | Risk: Rs {risk:.0f}")
+                else:
+                    msg_lines.append("⚠️ Market data returned no prices")
+            else:
+                msg_lines.append(f"⚠️ Tokens: sold={sold_tok}, bought={bought_tok}")
             msg_lines.append("✅ All systems OK")
         else:
             msg_lines.append("⚠️ Could not fetch Nifty LTP")
