@@ -178,29 +178,26 @@ def get_nifty_ltp(obj: SmartConnect) -> Optional[float]:
 # ═══════════════════════════════════════════════════════════════════
 def find_option_token(obj: SmartConnect, expiry_date: date,
                      opt_type: str, strike: int) -> tuple:
-    """Find NFO symbol token via searchScrip. Returns (token, symbol) or (None, None)."""
-    expiry_str = expiry_date.strftime("%d%b%Y").upper()
-    # Try multiple search formats
-    searches = [
-        f"NIFTY{expiry_str}{opt_type}{strike}",
-        f"NIFTY {expiry_str} {opt_type} {strike}",
-        f"NIFTY{expiry_str}{opt_type[0]}{strike}",
-    ]
-    for search_sym in searches:
-        try:
-            result = obj.searchScrip("NFO", search_sym)
-            log.info(f"searchScrip('NFO', '{search_sym}'): "
-                     f"status={result.get('status') if result else None}, "
-                     f"count={len(result.get('data', [])) if result else 0}")
-            if result and result.get("status") and result.get("data"):
-                for item in result["data"]:
-                    sym = item.get("tradingsymbol", "")
-                    if str(strike) in sym and opt_type[0] in sym.upper():
-                        log.info(f"  Found: {sym} (token={item['symboltoken']})")
-                        return item["symboltoken"], sym
-        except Exception as e:
-            log.warning(f"searchScrip error for '{search_sym}': {e}")
-    log.warning(f"Could not find token for NIFTY {opt_type} {strike} {expiry_str}")
+    """Find NFO symbol token via searchScrip. Returns (token, symbol) or (None, None).
+    Angel One format: NIFTY{DDMMMYY}{STRIKE}{CE/PE}  e.g. NIFTY10MAR2624250PE
+    """
+    # Angel One uses 2-digit year and strike BEFORE option type
+    expiry_str = expiry_date.strftime("%d%b%y").upper()        # e.g. 10MAR26
+    symbol = f"NIFTY{expiry_str}{strike}{opt_type}"            # e.g. NIFTY10MAR2624250PE
+    try:
+        result = obj.searchScrip("NFO", symbol)
+        log.info(f"searchScrip('NFO', '{symbol}'): "
+                 f"status={result.get('status') if result else None}, "
+                 f"count={len(result.get('data', [])) if result else 0}")
+        if result and result.get("status") and result.get("data"):
+            for item in result["data"]:
+                sym = item.get("tradingsymbol", "")
+                if sym == symbol:
+                    log.info(f"  Found: {sym} (token={item['symboltoken']})")
+                    return item["symboltoken"], sym
+    except Exception as e:
+        log.warning(f"searchScrip error for '{symbol}': {e}")
+    log.warning(f"Could not find token for {symbol}")
     return None, None
 
 
