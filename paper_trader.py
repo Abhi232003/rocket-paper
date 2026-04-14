@@ -176,6 +176,32 @@ def get_nifty_ltp(obj: SmartConnect) -> Optional[float]:
 # ═══════════════════════════════════════════════════════════════════
 #  ANGEL ONE MARKET DATA (real prices via searchScrip + getMarketData)
 # ═══════════════════════════════════════════════════════════════════
+def discover_available_strikes(obj: SmartConnect, expiry_date: date, opt_type: str, center_strike: int) -> list:
+    """Search for available strikes around center strike and return list of available strikes."""
+    expiry_str = expiry_date.strftime("%d%b%y").upper()
+    available = []
+    
+    # Search in a range: center ± 200 points, step 50
+    for offset in range(-200, 250, 50):
+        strike = center_strike + offset
+        if strike <= 0:
+            continue
+        symbol = f"NIFTY{expiry_str}{strike}{opt_type}"
+        try:
+            time.sleep(0.2)  # Rate limit: 200ms between searches
+            result = obj.searchScrip("NFO", symbol)
+            if result and result.get("status") and result.get("data"):
+                for item in result["data"]:
+                    if item.get("tradingsymbol", "") == symbol:
+                        available.append(strike)
+                        log.info(f"  Available: {symbol}")
+                        break
+        except Exception as e:
+            log.warning(f"Search error for {symbol}: {e}")
+    
+    return sorted(available)
+
+
 def find_option_token(obj: SmartConnect, expiry_date: date,
                      opt_type: str, strike: int) -> tuple:
     """Find NFO symbol token via searchScrip. Returns (token, symbol) or (None, None).
@@ -805,13 +831,56 @@ def run_bot():
         obj, today, spread["option_type"], spread["bought_strike"])
 
     if not sold_token or not bought_token:
-        log.warning(f"Could not find option tokens (sold={sold_token}, bought={bought_token}). Aborting.")
-        log_trade({"date": str(today), "day": today.strftime("%A"),
-                   "direction": direction, "gap_pct": round(gap_pct, 3),
-                   "nifty_entry": nifty, "status": "no_option_tokens",
-                   "prices_source": "token_not_found"})
-        notify(f"\u26a0\ufe0f <b>No Trade</b> — Option tokens not found\nNifty: {nifty:.0f}")
-        return
+        log.warning(f"Primary strikes not found. Discovering available strikes...")
+        available = discover_available_strikes(obj, today, spread["option_type"], spread["sold_strike"])
+        
+        if not available or len(available) < 2:
+            log.warning(f"Could not find any available strikes. Aborting.")
+            log_trade({"date": str(today), "day": today.strftime("%A"),
+                       "direction": direction, "gap_pct": round(gap_pct, 3),
+                       "nifty_entry": nifty, "status": "no_option_tokens",
+                       "prices_source": "token_not_found"})
+            notify(f"\u26a0\ufe0f <b>No Trade</b> — No available option strikes found\nNifty: {nifty:.0f}")
+            return
+        
+        # Use closest available strikes that form a 4-wide spread
+        log.info(f"Available strikes: {available}")
+        best_pair = None
+        for i, sold_st in enumerate(available):
+            for bought_st in available:
+                if sold_st - bought_st == SPREAD_WIDTH:
+                    best_pair = (sold_st, bought_st)
+                    break
+            if best_pair:
+                break
+        
+        if not best_pair:
+            log.warning("Could not find 4-wide pair from available strikes. Aborting.")
+            log_trade({"date": str(today), "day": today.strftime("%A"),
+                       "direction": direction, "gap_pct": round(gap_pct, 3),
+                       "nifty_entry": nifty, "status": "no_4wide_pair",
+                       "prices_source": "no_available_pair"})
+            notify(f"\u26a0\ufe0f <b>No Trade</b> — No 4-wide spread available\nNifty: {nifty:.0f}")
+            return
+        
+        spread["sold_strike"] = best_pair[0]
+        spread["bought_strike"] = best_pair[1]
+        log.info(f"Using fallback spread: Sell {spread['sold_strike']} {spread['option_type']}, "
+                 f"Buy {spread['bought_strike']} {spread['option_type']}")
+        
+        sold_token, sold_sym = find_option_token(
+            obj, today, spread["option_type"], spread["sold_strike"])
+        bought_token, bought_sym = find_option_token(
+            obj, today, spread["option_type"], spread["bought_strike"])
+        
+        if not sold_token or not bought_token:
+            log.warning(f"Still cannot find tokens for fallback strikes. Aborting.")
+            log_trade({"date": str(today), "day": today.strftime("%A"),
+                       "direction": direction, "gap_pct": round(gap_pct, 3),
+                       "nifty_entry": nifty, "status": "fallback_failed",
+                       "prices_source": "fallback_token_not_found"})
+            notify(f"\u26a0\ufe0f <b>No Trade</b> — Fallback strikes failed\nNifty: {nifty:.0f}")
+            return
 
     token_map = {
         spread["sold_strike"]:   {"token": sold_token, "symbol": sold_sym},
