@@ -5,3 +5,4 @@ date,day,direction,gap_pct,entry_time,nifty_entry,nifty_exit,option_type,sold_st
 2026-04-07,Tuesday,Bullish,0.059,13:56,23008.55,23063.75,PE,23000.0,22800.0,200.0,40.05,2.65,0.0,0.0,4.7,0.45,37.4,2431.0,10569.0,TP,14:50,2154.75,123.54,2031.21,19.22,market_data_full,completed,54 checks
 2026-04-14,Tuesday,Bullish,0.891,,23842.65,,,,,,,,,,,,,,,,,,,,,token_not_found,no_option_tokens,
 2026-04-14,Tuesday,Bullish,0.891,,23842.65,,,,,,,,,,,,,,,,,,,,,token_not_found,no_option_tokens,
+2026-04-14,Tuesday,Bullish,0.891,,23842.65,,,,,,,,,,,,,,,,,,,,,token_not_found,no_option_tokens,
