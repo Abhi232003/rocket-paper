@@ -1,6 +1,7 @@
 date,day,direction,gap_pct,entry_time,nifty_entry,nifty_exit,option_type,sold_strike,bought_strike,spread_width,sold_entry_prem,bought_entry_prem,sold_iv_entry,bought_iv_entry,sold_exit_prem,bought_exit_prem,net_credit,net_credit_rs,max_risk_rs,exit_type,exit_time,gross_pl_rs,cost_rs,net_pl_rs,net_pl_pct,prices_source,status,notes
-2026-03-10,Tuesday,Bullish,2.038,14:40,24234.4,24258.3,PE,24250,24050,200,37.0,1.3,0,0,2.7,0.1,35.7,2320.5,10679.5,TP,15:08,2151.5,120.54,2030.96,19.02,market_data_full,completed,29 checks
-2026-03-17,Tuesday,Bullish,0.226,13:45,23544.35,23594.85,PE,23550,23350,200,52.1,4.65,0,0,14.75,0.8,47.45,3084.25,9915.75,TP,14:35,2177.5,133.13,2044.37,20.62,market_data_full,completed,50 checks
-2026-03-24,Tuesday,Bearish,-1.932,13:45,23031.55,22941.7,CE,23050,23250,200,54.7,7.0,0,0,14.7,1.95,47.7,3100.5,9899.5,TP,14:20,2271.75,136.51,2135.24,21.57,market_data_full,completed,36 checks
-2026-04-07,Tuesday,Bullish,0.059,13:56,23008.55,23063.75,PE,23000,22800,200,40.05,2.65,0,0,4.7,0.45,37.4,2431.0,10569.0,TP,14:50,2154.75,123.54,2031.21,19.22,market_data_full,completed,54 checks
+2026-03-10,Tuesday,Bullish,2.038,14:40,24234.4,24258.3,PE,24250.0,24050.0,200.0,37.0,1.3,0.0,0.0,2.7,0.1,35.7,2320.5,10679.5,TP,15:08,2151.5,120.54,2030.96,19.02,market_data_full,completed,29 checks
+2026-03-17,Tuesday,Bullish,0.226,13:45,23544.35,23594.85,PE,23550.0,23350.0,200.0,52.1,4.65,0.0,0.0,14.75,0.8,47.45,3084.25,9915.75,TP,14:35,2177.5,133.13,2044.37,20.62,market_data_full,completed,50 checks
+2026-03-24,Tuesday,Bearish,-1.932,13:45,23031.55,22941.7,CE,23050.0,23250.0,200.0,54.7,7.0,0.0,0.0,14.7,1.95,47.7,3100.5,9899.5,TP,14:20,2271.75,136.51,2135.24,21.57,market_data_full,completed,36 checks
+2026-04-07,Tuesday,Bullish,0.059,13:56,23008.55,23063.75,PE,23000.0,22800.0,200.0,40.05,2.65,0.0,0.0,4.7,0.45,37.4,2431.0,10569.0,TP,14:50,2154.75,123.54,2031.21,19.22,market_data_full,completed,54 checks
+2026-04-14,Tuesday,Bullish,0.891,,23842.65,,,,,,,,,,,,,,,,,,,,,token_not_found,no_option_tokens,
 2026-04-14,Tuesday,Bullish,0.891,,23842.65,,,,,,,,,,,,,,,,,,,,,token_not_found,no_option_tokens,
