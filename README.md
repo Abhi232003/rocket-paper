@@ -7,7 +7,7 @@ Automated Nifty 0-DTE credit spread paper trader. Runs every Tuesday on GitHub A
 <!-- STATS_START -->
 | Trades | Win Rate | Total P&L | Avg P&L | Max DD | Streak |
 |:------:|:--------:|:---------:|:-------:|:------:|:------:|
-| 11 | 73% (8W/3L) | Rs -14,086 | Rs -1,281 | Rs 24,671 | 1W |
+| 12 | 67% (8W/4L) | Rs -14,741 | Rs -1,228 | Rs 24,974 | 1L |
 <!-- STATS_END -->
 
 ---
@@ -23,14 +23,14 @@ Automated Nifty 0-DTE credit spread paper trader. Runs every Tuesday on GitHub A
 <!-- LAST_TRADE_START -->
 | Field | Value |
 |-------|-------|
-| Date | 2026-06-02 (Tuesday) |
-| Direction | Bullish |
-| Spread | PE 23450/23250 (4-wide) |
-| Credit | Rs 452 |
-| Risk | Rs 12,548 |
+| Date | 2026-06-09 (Tuesday) |
+| Direction | Bearish |
+| Spread | CE 23200/23400 (4-wide) |
+| Credit | Rs 2,262 |
+| Risk | Rs 10,738 |
 | Exit | Time Exit at 15:15 |
-| Nifty | 23458 -> 23492 |
-| Result | **W Rs +352 (+2.8%)** |
+| Nifty | 23221 -> 23238 |
+| Result | **L Rs -655 (-6.1%)** |
 <!-- LAST_TRADE_END -->
 
 ---
