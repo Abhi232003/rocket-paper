@@ -15,3 +15,4 @@ date,day,direction,gap_pct,entry_time,nifty_entry,nifty_exit,option_type,sold_st
 2026-05-26,Tuesday,Bearish,-0.116,14:40,23904.65,23911.3,CE,23900.0,23700.0,200.0,19.85,203.4,0.0,0.0,12.1,211.85,-183.55,-11930.75,24930.75,Time Exit,15:15,-11930.75,246.77,-12177.52,-48.85,market_data_full,completed,36 checks
 2026-06-02,Tuesday,Bullish,0.779,14:57,23458.2,23492.05,PE,23450.0,23250.0,200.0,7.15,0.2,0.0,0.0,0.05,0.1,6.95,451.75,12548.25,Time Exit,15:15,451.75,99.42,352.33,2.81,market_data_full,completed,19 checks
 2026-06-09,Tuesday,Bearish,-0.109,14:38,23220.65,23238.0,CE,23200.0,23400.0,200.0,35.35,0.55,0.0,0.0,43.1,0.05,34.8,2262.0,10738.0,Time Exit,15:15,-536.25,118.9,-655.15,-6.1,market_data_full,completed,37 checks
+2026-06-16,Tuesday,Bullish,1.248,,23984.3,,,,,,,,,,,,,,,,,,,,,fallback_token_not_found,fallback_failed,
