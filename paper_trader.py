@@ -846,13 +846,27 @@ def run_bot():
         # Use closest available strikes that form a 4-wide spread
         log.info(f"Available strikes: {available}")
         best_pair = None
-        for i, sold_st in enumerate(available):
-            for bought_st in available:
-                if sold_st - bought_st == SPREAD_WIDTH:
-                    best_pair = (sold_st, bought_st)
+        
+        # For Bullish (PE spreads): sold_strike - bought_strike = WIDTH (sold higher than bought)
+        # For Bearish (CE spreads): bought_strike - sold_strike = WIDTH (bought higher than sold)
+        if direction == "Bullish":
+            # sold_st > bought_st by WIDTH
+            for i, sold_st in enumerate(available):
+                for bought_st in available:
+                    if sold_st - bought_st == SPREAD_WIDTH:
+                        best_pair = (sold_st, bought_st)
+                        break
+                if best_pair:
                     break
-            if best_pair:
-                break
+        else:
+            # Bearish: bought_st > sold_st by WIDTH
+            for i, sold_st in enumerate(available):
+                for bought_st in available:
+                    if bought_st - sold_st == SPREAD_WIDTH:
+                        best_pair = (sold_st, bought_st)
+                        break
+                if best_pair:
+                    break
         
         if not best_pair:
             log.warning("Could not find 4-wide pair from available strikes. Aborting.")
