@@ -45,6 +45,8 @@ matplotlib.use("Agg")
 import matplotlib.pyplot as plt
 import matplotlib.dates as mdates
 
+_OPTION_CHAIN_CACHE = {}
+
 # ═══════════════════════════════════════════════════════════════════
 #  CONFIG
 # ═══════════════════════════════════════════════════════════════════
@@ -176,30 +178,47 @@ def get_nifty_ltp(obj: SmartConnect) -> Optional[float]:
 # ═══════════════════════════════════════════════════════════════════
 #  ANGEL ONE MARKET DATA (real prices via searchScrip + getMarketData)
 # ═══════════════════════════════════════════════════════════════════
+def _load_option_chain(obj: SmartConnect, expiry_date: date, opt_type: str) -> list:
+    """Load all available symbols for a given expiry and option type with caching."""
+    expiry_str = expiry_date.strftime("%d%b%y").upper()
+    cache_key = f"{expiry_str}:{opt_type}"
+    if cache_key in _OPTION_CHAIN_CACHE:
+        return _OPTION_CHAIN_CACHE[cache_key]
+
+    query = f"NIFTY{expiry_str}"
+    try:
+        result = obj.searchScrip("NFO", query)
+        data = result.get("data", []) if result else []
+        filtered = [item for item in data if item.get("tradingsymbol", "").endswith(opt_type)]
+        _OPTION_CHAIN_CACHE[cache_key] = filtered
+        log.info(f"Loaded option chain for {query} {opt_type}: {len(filtered)} symbols")
+        return filtered
+    except Exception as e:
+        log.warning(f"Option chain lookup failed for {query} {opt_type}: {e}")
+        _OPTION_CHAIN_CACHE[cache_key] = []
+        return []
+
+
 def discover_available_strikes(obj: SmartConnect, expiry_date: date, opt_type: str, center_strike: int) -> list:
     """Search for available strikes around center strike and return list of available strikes."""
-    expiry_str = expiry_date.strftime("%d%b%y").upper()
     available = []
-    
+    chain = _load_option_chain(obj, expiry_date, opt_type)
+    expiry_str = expiry_date.strftime("%d%b%y").upper()
+
     # Search in a range: center ± 200 points, step 50
-    for offset in range(-200, 250, 50):
-        strike = center_strike + offset
-        if strike <= 0:
+    valid_strikes = {center_strike + offset for offset in range(-200, 250, 50) if center_strike + offset > 0}
+    for item in chain:
+        symbol = item.get("tradingsymbol", "")
+        if not symbol or not symbol.endswith(opt_type):
             continue
-        symbol = f"NIFTY{expiry_str}{strike}{opt_type}"
-        try:
-            time.sleep(0.2)  # Rate limit: 200ms between searches
-            result = obj.searchScrip("NFO", symbol)
-            if result and result.get("status") and result.get("data"):
-                for item in result["data"]:
-                    if item.get("tradingsymbol", "") == symbol:
-                        available.append(strike)
-                        log.info(f"  Available: {symbol}")
-                        break
-        except Exception as e:
-            log.warning(f"Search error for {symbol}: {e}")
-    
-    return sorted(available)
+        strike_text = symbol.replace(f"NIFTY{expiry_str}", "")[:-2]
+        if strike_text.isdigit():
+            strike = int(strike_text)
+            if strike in valid_strikes:
+                available.append(strike)
+                log.info(f"  Available: {symbol}")
+
+    return sorted(set(available))
 
 
 def find_option_token(obj: SmartConnect, expiry_date: date,
@@ -210,6 +229,13 @@ def find_option_token(obj: SmartConnect, expiry_date: date,
     # Angel One uses 2-digit year and strike BEFORE option type
     expiry_str = expiry_date.strftime("%d%b%y").upper()        # e.g. 10MAR26
     symbol = f"NIFTY{expiry_str}{strike}{opt_type}"            # e.g. NIFTY10MAR2624250PE
+    chain = _load_option_chain(obj, expiry_date, opt_type)
+    for item in chain:
+        sym = item.get("tradingsymbol", "")
+        if sym == symbol:
+            log.info(f"  Found: {sym} (token={item['symboltoken']})")
+            return item["symboltoken"], sym
+
     try:
         result = obj.searchScrip("NFO", symbol)
         log.info(f"searchScrip('NFO', '{symbol}'): "
