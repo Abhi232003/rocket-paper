@@ -965,6 +965,30 @@ def run_bot():
 
     entry_time_str = now_ist().strftime("%H:%M")
 
+    # Determine TP/SL based on entry time
+    # If entry is late (>= 14:15), use lower targets to hit within remaining time
+    # Early entries have 75+ min, can target 20% TP; late entries have 30-50 min, need 12% TP
+    entry_hour = int(entry_time_str.split(":")[0])
+    entry_min = int(entry_time_str.split(":")[1])
+    entry_total_min = entry_hour * 60 + entry_min
+    
+    if entry_total_min >= 14 * 60 + 15:  # Entry >= 14:15
+        dynamic_tp_pct = 12.0
+        dynamic_sl_pct = 70.0
+        log.info(f"LATE ENTRY (>= 14:15) — Using adaptive TP/SL: {dynamic_tp_pct}% / {dynamic_sl_pct}%")
+    else:
+        dynamic_tp_pct = TP_PCT
+        dynamic_sl_pct = SL_PCT
+        log.info(f"EARLY ENTRY (< 14:15) — Using standard TP/SL: {dynamic_tp_pct}% / {dynamic_sl_pct}%")
+
+    log.info(f"  TP at:  Rs {max_risk_rs * dynamic_tp_pct / 100:.0f} profit")
+    log.info(f"  SL at:  Rs {max_risk_rs * dynamic_sl_pct / 100:.0f} loss")
+
+    # ── MONITORING LOOP ──
+    log.info(f"\n{'='*60}")
+    log.info("MONITORING — checking for TP/SL every 1 min")
+    log.info(f"{'='*60}")
+
     notify(
         f"\U0001f4c8 <b>TRADE ENTRY</b>\n"
         f"Direction: {direction} (DAX {gap_pct:+.2f}%)\n"
@@ -972,13 +996,8 @@ def run_bot():
         f"Sell {spread['sold_strike']} {spread['option_type']} | "
         f"Buy {spread['bought_strike']} {spread['option_type']}\n"
         f"Credit: Rs {net_credit_rs:,.0f} | Risk: Rs {max_risk_rs:,.0f}\n"
-        f"TP: Rs {max_risk_rs * TP_PCT / 100:,.0f} | SL: Rs {max_risk_rs * SL_PCT / 100:,.0f}"
+        f"TP: Rs {max_risk_rs * dynamic_tp_pct / 100:,.0f} | SL: Rs {max_risk_rs * dynamic_sl_pct / 100:,.0f}"
     )
-
-    # ── MONITORING LOOP ──
-    log.info(f"\n{'='*60}")
-    log.info("MONITORING — checking for TP/SL every 1 min")
-    log.info(f"{'='*60}")
 
     exit_type = "Time Exit"
     exit_time_str = ""
@@ -1043,7 +1062,7 @@ def run_bot():
                   nifty_now, spread_value, gross_pl_pct)
 
         # TP hit? (gross, before costs — matches backtest)
-        if gross_pl_pct > 0 and gross_pl_pct >= TP_PCT:
+        if gross_pl_pct > 0 and gross_pl_pct >= dynamic_tp_pct:
             exit_type = "TP"
             exit_time_str = ist_now.strftime("%H:%M")
             log.info(f"TP HIT at {exit_time_str}! Gross P&L = Rs {gross_pl_rs:+,.0f} ({gross_pl_pct:+.1f}%)")
@@ -1055,7 +1074,7 @@ def run_bot():
             break
 
         # SL hit? (gross, before costs — matches backtest)
-        if gross_pl_pct < 0 and abs(gross_pl_pct) >= SL_PCT:
+        if gross_pl_pct < 0 and abs(gross_pl_pct) >= dynamic_sl_pct:
             exit_type = "SL"
             exit_time_str = ist_now.strftime("%H:%M")
             log.info(f"SL HIT at {exit_time_str}! Gross P&L = Rs {gross_pl_rs:+,.0f} ({gross_pl_pct:+.1f}%)")
